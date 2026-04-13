@@ -1886,3 +1886,202 @@ function spawnConfetti() {
 window.switchAttendeeTab = function(tabId) {
   // no-op: attendee actions now use full modal overlays
 };
+
+// ─────────────────────────────────────────────
+// GOOGLE MAPS INTEGRATION
+// Real-time crowd heatmap overlay on Google Maps
+// ─────────────────────────────────────────────
+let googleMap = null;
+let heatmapLayer = null;
+let trafficLayer = null;
+let trafficLayerActive = false;
+
+// Wembley Stadium coordinates (demo venue)
+const VENUE_COORDS = { lat: 51.5560, lng: -0.2795 };
+
+// Map the ZONES data to geo-coordinates around Wembley
+const ZONE_GEO_OFFSETS = [
+  { id:'N1', latOff:  0.0045, lngOff: -0.005  },
+  { id:'N2', latOff:  0.0045, lngOff:  0.002  },
+  { id:'E1', latOff:  0.0010, lngOff:  0.0085 },
+  { id:'E2', latOff: -0.0020, lngOff:  0.0090 },
+  { id:'S1', latOff: -0.0050, lngOff: -0.003  },
+  { id:'S2', latOff: -0.0050, lngOff:  0.002  },
+  { id:'W1', latOff: -0.0015, lngOff: -0.0090 },
+  { id:'W2', latOff: -0.0030, lngOff: -0.0085 },
+  { id:'C1', latOff: -0.0005, lngOff: -0.0005 },
+];
+
+/**
+ * Called by Google Maps JS API when it has loaded.
+ * Renders a live crowd heatmap overlay on the map.
+ */
+window.initGoogleMap = function() {
+  try {
+    const mapEl = document.getElementById('google-map');
+    if (!mapEl || typeof google === 'undefined') return;
+
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+    googleMap = new google.maps.Map(mapEl, {
+      center: VENUE_COORDS,
+      zoom: 16,
+      mapTypeId: google.maps.MapTypeId.ROADMAP,
+      styles: isDark ? MAPS_DARK_STYLE : [],
+      disableDefaultUI: false,
+      zoomControl: true,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: true,
+    });
+
+    trafficLayer = new google.maps.TrafficLayer();
+
+    refreshMapHeatmap();
+
+    // Venue marker
+    new google.maps.Marker({
+      position: VENUE_COORDS,
+      map: googleMap,
+      title: 'VenueFlow — Wembley Stadium',
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 10,
+        fillColor: '#3b82f6',
+        fillOpacity: 0.9,
+        strokeColor: '#ffffff',
+        strokeWeight: 2,
+      },
+    });
+
+    // Update map every 5 seconds to reflect density changes
+    setInterval(refreshMapHeatmap, 5000);
+
+    // Sync theme changes
+    document.getElementById('theme-toggle')?.addEventListener('click', () => {
+      setTimeout(() => {
+        const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+        googleMap.setOptions({ styles: dark ? MAPS_DARK_STYLE : [] });
+      }, 100);
+    });
+
+    const statusEl = document.getElementById('maps-status');
+    if (statusEl) statusEl.textContent = '✅ Live crowd heatmap active — Wembley Stadium';
+
+    // Firebase real-time sync (if available)
+    initFirebaseSync();
+
+  } catch (err) {
+    initGoogleMapFallback();
+  }
+};
+
+/** Rebuild heatmap layer from current ZONES densities */
+function refreshMapHeatmap() {
+  if (!googleMap || typeof google === 'undefined') return;
+
+  const heatData = ZONES.map((z, i) => {
+    const offset = ZONE_GEO_OFFSETS[i] || { latOff: 0, lngOff: 0 };
+    return {
+      location: new google.maps.LatLng(
+        VENUE_COORDS.lat + offset.latOff,
+        VENUE_COORDS.lng + offset.lngOff
+      ),
+      weight: z.density,
+    };
+  });
+
+  if (heatmapLayer) {
+    heatmapLayer.setData(heatData);
+  } else {
+    heatmapLayer = new google.maps.visualization.HeatmapLayer({
+      data: heatData,
+      map: googleMap,
+      radius: 60,
+      opacity: 0.75,
+      gradient: [
+        'rgba(0,255,120,0)',
+        'rgba(0,255,120,0.6)',
+        'rgba(255,200,0,0.8)',
+        'rgba(255,100,0,0.9)',
+        'rgba(255,30,30,1)',
+      ],
+    });
+  }
+}
+
+/** Toggle Google Maps traffic layer on/off */
+window.toggleTrafficLayer = function() {
+  if (!trafficLayer || !googleMap) return;
+  trafficLayerActive = !trafficLayerActive;
+  trafficLayer.setMap(trafficLayerActive ? googleMap : null);
+  const btn = document.getElementById('btn-traffic-layer');
+  if (btn) btn.style.background = trafficLayerActive ? 'var(--accent-blue)' : '';
+};
+
+/** Graceful fallback if Google Maps fails to load (CORS / key issue) */
+window.initGoogleMapFallback = function() {
+  const mapEl = document.getElementById('google-map');
+  if (!mapEl) return;
+  mapEl.style.display = 'flex';
+  mapEl.style.alignItems = 'center';
+  mapEl.style.justifyContent = 'center';
+  mapEl.style.flexDirection = 'column';
+  mapEl.style.gap = '12px';
+  mapEl.innerHTML = `
+    <div style="font-size:2.5rem;">🗺️</div>
+    <div style="color:var(--text-secondary);font-size:.85rem;text-align:center;padding:0 2rem;">
+      <strong style="color:var(--text-primary);">Google Maps</strong> requires a valid API key.<br>
+      The crowd heatmap overlay is ready — add your key to <code>app.js → GOOGLE_MAPS_KEY</code>.
+    </div>
+    <div style="font-size:.75rem;color:var(--text-tertiary);">Venue: Wembley Stadium, London · 51.5560°N, 0.2795°W</div>
+  `;
+  const statusEl = document.getElementById('maps-status');
+  if (statusEl) statusEl.textContent = '⚠️ Add Google Maps API key to enable live map';
+};
+
+/** Google Maps dark style theme */
+const MAPS_DARK_STYLE = [
+  { elementType: 'geometry', stylers: [{ color: '#1d2433' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#38414e' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#212a37' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9ca5b3' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#17263c' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#515c6d' }] },
+];
+
+// ─────────────────────────────────────────────
+// FIREBASE REALTIME DATABASE SYNC
+// Pushes live zone density data for attendee apps
+// ─────────────────────────────────────────────
+function initFirebaseSync() {
+  if (!window.VF_FIREBASE) return; // offline / demo mode
+  try {
+    const db = window.VF_FIREBASE;
+    // Push initial zone snapshot
+    pushZonesToFirebase(db);
+    // Keep pushing every 5s in sync with simulation
+    setInterval(() => pushZonesToFirebase(db), 5000);
+    showToast('success', 'Firebase Connected', 'Real-time crowd sync active for attendee devices');
+  } catch (e) {
+    // Firebase unavailable — silent degradation
+  }
+}
+
+function pushZonesToFirebase(db) {
+  try {
+    const snapshot = {};
+    ZONES.forEach(z => {
+      snapshot[z.id] = {
+        name: z.name,
+        density: Math.round(z.density * 100),
+        wait: z.wait,
+        status: z.density > .75 ? 'critical' : z.density > .5 ? 'warning' : 'clear',
+        ts: Date.now(),
+      };
+    });
+    db.ref('venues/wembley/zones').set(snapshot);
+  } catch (e) { /* offline */ }
+}
