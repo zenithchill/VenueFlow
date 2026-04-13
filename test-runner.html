@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VenueFlow — Test Runner</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      padding: 2rem;
+      min-height: 100vh;
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      margin-bottom: .4rem;
+    }
+    .subtitle { color: #8b949e; font-size: .88rem; margin-bottom: 1.75rem; }
+    .summary-bar {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+    }
+    .stat-chip {
+      padding: .5rem 1.1rem;
+      border-radius: 24px;
+      font-weight: 700;
+      font-size: .9rem;
+    }
+    .chip-total  { background: rgba(59,130,246,.18); color: #60a5fa; border: 1px solid rgba(59,130,246,.3); }
+    .chip-pass   { background: rgba(34,197,94,.18);  color: #4ade80; border: 1px solid rgba(34,197,94,.3); }
+    .chip-fail   { background: rgba(239,68,68,.18);  color: #f87171; border: 1px solid rgba(239,68,68,.3); }
+    .chip-pct    { background: rgba(168,85,247,.18); color: #c084fc; border: 1px solid rgba(168,85,247,.3); }
+    .progress-bar-wrap { height: 8px; background: #21262d; border-radius: 4px; margin-bottom: 2rem; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg,#22c55e,#06b6d4); border-radius: 4px; transition: width .8s cubic-bezier(.4,0,.2,1); }
+    .suite-block { margin-bottom: 1.5rem; }
+    .suite-title {
+      font-size: .95rem;
+      font-weight: 600;
+      color: #8b949e;
+      padding: .4rem .6rem;
+      background: #161b22;
+      border-radius: 6px;
+      margin-bottom: .5rem;
+      border-left: 3px solid #30363d;
+    }
+    .test-row {
+      display: flex;
+      align-items: flex-start;
+      gap: .65rem;
+      padding: .35rem .75rem;
+      border-radius: 6px;
+      font-size: .84rem;
+      line-height: 1.4;
+    }
+    .test-row.pass { background: rgba(34,197,94,.05); }
+    .test-row.fail { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.2); }
+    .icon { font-size: 1rem; flex-shrink: 0; margin-top: .1rem; }
+    .test-name { flex: 1; color: #cdd9e5; }
+    .test-error { color: #f87171; font-size: .78rem; margin-top: .2rem; font-family: monospace; }
+    .footer { margin-top: 2.5rem; text-align: center; color: #484f58; font-size: .8rem; }
+  </style>
+</head>
+<body>
+  <h1>🧪 VenueFlow Test Runner</h1>
+  <p class="subtitle">Running unit tests for crowd management logic, security, Google Services, and problem statement alignment…</p>
+
+  <div class="summary-bar" id="summary"></div>
+  <div class="progress-bar-wrap"><div class="progress-fill" id="progress" style="width:0%"></div></div>
+  <div id="output"></div>
+  <div class="footer">VenueFlow v2 · Test Suite · All results computed in-browser · <span id="runtime"></span></div>
+
+  <script>
+  // ─── Inline test framework ───────────────────────────────────────────────
+  let _passed = 0, _failed = 0, _total = 0;
+  const _results = [];
+
+  function describe(name, fn) { _results.push({ type:'suite', name }); fn(); }
+  function it(name, fn) {
+    _total++;
+    try {
+      const r = fn();
+      if (r && typeof r.then === 'function') {
+        r.then(() => { _passed++; _results.push({ type:'pass', name }); render(); })
+         .catch(e => { _failed++; _results.push({ type:'fail', name, error: e.message }); render(); });
+        return;
+      }
+      _passed++; _results.push({ type:'pass', name });
+    } catch(e) { _failed++; _results.push({ type:'fail', name, error: e.message }); }
+  }
+  function expect(actual) {
+    return {
+      toBe:                  (e) => { if (actual !== e) throw new Error(`Expected ${JSON.stringify(e)}, got ${JSON.stringify(actual)}`); },
+      toEqual:               (e) => { if (JSON.stringify(actual) !== JSON.stringify(e)) throw new Error(`Expected ${JSON.stringify(e)}, got ${JSON.stringify(actual)}`); },
+      toBeGreaterThan:       (n) => { if (actual <= n) throw new Error(`Expected ${actual} > ${n}`); },
+      toBeLessThan:          (n) => { if (actual >= n) throw new Error(`Expected ${actual} < ${n}`); },
+      toBeGreaterThanOrEqual:(n) => { if (actual < n)  throw new Error(`Expected ${actual} >= ${n}`); },
+      toBeLessThanOrEqual:   (n) => { if (actual > n)  throw new Error(`Expected ${actual} <= ${n}`); },
+      toBeTruthy:            ()  => { if (!actual) throw new Error(`Expected truthy, got ${actual}`); },
+      toBeFalsy:             ()  => { if (actual)  throw new Error(`Expected falsy, got ${actual}`); },
+      toContain:             (s) => { if (!String(actual).includes(String(s))) throw new Error(`Expected "${actual}" to contain "${s}"`); },
+      toMatch:               (r) => { if (!r.test(String(actual))) throw new Error(`Expected "${actual}" to match ${r}`); },
+      toHaveLength:          (l) => { if (actual.length !== l) throw new Error(`Expected length ${l}, got ${actual.length}`); },
+      toBeNull:              ()  => { if (actual !== null) throw new Error(`Expected null, got ${actual}`); },
+    };
+  }
+  </script>
+  <script src="venueflow.test.js"></script>
+  <script>
+  // ─── Render results ───────────────────────────────────────────────────────
+  const t0 = performance.now();
+  function render() {
+    const out    = document.getElementById('output');
+    const sumEl  = document.getElementById('summary');
+    const progEl = document.getElementById('progress');
+    const rtEl   = document.getElementById('runtime');
+
+    const pct = _total > 0 ? Math.round((_passed / _total) * 100) : 0;
+    progEl.style.width = pct + '%';
+
+    sumEl.innerHTML = `
+      <span class="stat-chip chip-total">🧪 Total: ${_total}</span>
+      <span class="stat-chip chip-pass">✅ Passed: ${_passed}</span>
+      <span class="stat-chip chip-fail">❌ Failed: ${_failed}</span>
+      <span class="stat-chip chip-pct">📊 ${pct}%</span>
+    `;
+
+    rtEl.textContent = `Ran in ${(performance.now() - t0).toFixed(1)} ms`;
+
+    let html = '';
+    let inSuite = false;
+    _results.forEach(r => {
+      if (r.type === 'suite') {
+        if (inSuite) html += '</div>';
+        html += `<div class="suite-block"><div class="suite-title">${r.name}</div>`;
+        inSuite = true;
+      } else if (r.type === 'pass') {
+        html += `<div class="test-row pass"><span class="icon">✅</span><span class="test-name">${r.name}</span></div>`;
+      } else {
+        html += `<div class="test-row fail"><span class="icon">❌</span><div><div class="test-name">${r.name}</div><div class="test-error">→ ${r.error}</div></div></div>`;
+      }
+    });
+    if (inSuite) html += '</div>';
+    out.innerHTML = html;
+  }
+  render();
+  </script>
+</body>
+</html>
